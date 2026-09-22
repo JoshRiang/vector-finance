@@ -1,0 +1,389 @@
+/// VECTOR Finance — balance, burn rate, runway.
+///
+/// Server-backed so the numbers survive a reinstall and the calendar can see
+/// real daily burn. The maths mirrors the existing Vector planner: the app
+/// never auto-adjusts the user's daily budget, it only computes and reports.
+library;
+
+import 'package:flutter/cupertino.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'api_client.dart';
+
+void main() => runApp(const VectorFinanceApp());
+
+class C {
+  static const bg = Color(0xFFF5F5F7);
+  static const bgTop = Color(0xFFEEF1FF);
+  static const glass = Color(0xCCFFFFFF);
+  static const accent = Color(0xFF6366F1);
+  static const success = Color(0xFF10B981);
+  static const danger = Color(0xFFEF4444);
+  static const warning = Color(0xFFF59E0B);
+  static const textPrimary = Color(0xFF1C1C1E);
+  static const textSecondary = Color(0xFF6B7280);
+  static const textTertiary = Color(0xFF9CA3AF);
+}
+
+class VectorFinanceApp extends StatelessWidget {
+  const VectorFinanceApp({super.key});
+
+  @override
+  Widget build(BuildContext context) => const CupertinoApp(
+        title: 'Vector Finance',
+        debugShowCheckedModeBanner: false,
+        theme: CupertinoThemeData(
+            primaryColor: C.accent, scaffoldBackgroundColor: C.bg),
+        home: FinancePage(),
+      );
+}
+
+class FinancePage extends StatefulWidget {
+  const FinancePage({super.key});
+
+  @override
+  State<FinancePage> createState() => _FinancePageState();
+}
+
+class _FinancePageState extends State<FinancePage> {
+  final _amountController = TextEditingController();
+  final _noteController = TextEditingController();
+  Api? _api;
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic> _data = {};
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_bootstrap);
+  }
+
+  Future<void> _bootstrap() async {
+    final prefs = await SharedPreferences.getInstance();
+    final id = prefs.getString('vector.user_id') ?? 'local';
+    _api = Api(userId: id);
+    await _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final api = _api;
+    if (api == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final d = await api.finance();
+      if (!mounted) return;
+      setState(() {
+        _data = d;
+        _loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _addExpense() async {
+    final amt = num.tryParse(_amountController.text.trim());
+    if (amt == null || amt <= 0) return;
+    try {
+      await _api!.addExpense(amt,
+          note: _noteController.text.trim().isEmpty
+              ? null
+              : _noteController.text.trim());
+      _amountController.clear();
+      _noteController.clear();
+      await _refresh();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    }
+  }
+
+  String _money(num? v) {
+    if (v == null) return '—';
+    final s = v.toStringAsFixed(0);
+    final buf = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+    }
+    return '${_data['currency'] ?? 'IDR'} ${buf.toString()}';
+  }
+
+  /// Runway is the number that actually changes behaviour, so it gets the
+  /// headline slot rather than being buried under the balance.
+  Widget _runwayHero() {
+    final days = (_data['runway_days'] as num?)?.toInt();
+    final avg = (_data['avg_daily_spend'] as num?)?.toDouble() ?? 0;
+    if (days == null || avg <= 0) {
+      return _card(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text('Runway',
+                  style: TextStyle(fontSize: 13, color: C.textTertiary)),
+              SizedBox(height: 8),
+              Text('No spending logged yet',
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: C.textPrimary)),
+              SizedBox(height: 6),
+              Text('Log an expense and this becomes a real number.',
+                  style: TextStyle(fontSize: 13, color: C.textSecondary)),
+            ],
+          ),
+        ),
+      );
+    }
+    final critical = days < 7;
+    return _card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('RUNWAY AT CURRENT BURN',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.9,
+                    color: critical ? C.danger : C.textTertiary)),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text('$days',
+                    style: TextStyle(
+                        fontSize: 44,
+                        height: 1,
+                        fontWeight: FontWeight.w700,
+                        color: critical ? C.danger : C.textPrimary)),
+                const SizedBox(width: 8),
+                const Text('days',
+                    style: TextStyle(fontSize: 17, color: C.textSecondary)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text('Burning ${_money(avg)}/day',
+                style: const TextStyle(fontSize: 14, color: C.textSecondary)),
+            if (critical) ...[
+              const SizedBox(height: 12),
+              Row(children: const [
+                Icon(CupertinoIcons.exclamationmark_triangle,
+                    size: 15, color: C.danger),
+                SizedBox(width: 7),
+                Expanded(
+                  child: Text('Under a week of runway left.',
+                      style: TextStyle(fontSize: 13, color: C.danger)),
+                ),
+              ]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [C.bgTop, C.bg],
+          ),
+        ),
+        child: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+              children: _body(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _body() {
+    if (_loading) {
+      return const [
+        SizedBox(height: 120),
+        Center(child: CupertinoActivityIndicator(radius: 14)),
+      ];
+    }
+    if (_error != null && _data.isEmpty) {
+      return [
+        const SizedBox(height: 100),
+        const Icon(CupertinoIcons.wifi_slash, size: 44, color: C.textTertiary),
+        const SizedBox(height: 14),
+        Text(_error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 15, color: C.textSecondary)),
+        const SizedBox(height: 20),
+        CupertinoButton(onPressed: _refresh, child: const Text('Retry')),
+      ];
+    }
+
+    final budget = (_data['daily_budget'] as num?)?.toDouble() ?? 0;
+    final spentToday = (_data['today_spent'] as num?)?.toDouble() ?? 0;
+    final free = (_data['free_today'] as num?)?.toDouble();
+    final progress = budget > 0 ? (spentToday / budget).clamp(0.0, 1.0) : 0.0;
+
+    return [
+      const Text('Money',
+          style: TextStyle(
+              fontSize: 34, fontWeight: FontWeight.w700, color: C.textPrimary)),
+      const SizedBox(height: 4),
+      Text('Balance ${_money((_data['balance'] as num?))}',
+          style: const TextStyle(fontSize: 15, color: C.textSecondary)),
+      const SizedBox(height: 22),
+      _runwayHero(),
+      const SizedBox(height: 14),
+      if (budget > 0)
+        _card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Today',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: C.textPrimary)),
+                    Text(free == null ? '—' : '${_money(free)} free',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: progress >= 1 ? C.danger : C.success)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Container(
+                    height: 6,
+                    color: const Color(0x14000000),
+                    child: FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: progress,
+                      child: Container(
+                          color: progress >= 1 ? C.danger : C.accent),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text('${_money(spentToday)} of ${_money(budget)}',
+                    style: const TextStyle(
+                        fontSize: 13, color: C.textSecondary)),
+              ],
+            ),
+          ),
+        ),
+      const SizedBox(height: 14),
+      Row(children: [
+        Expanded(
+            child: _miniStat(
+                _money((_data['spent_30d'] as num?)), 'last 30 days')),
+        const SizedBox(width: 12),
+        Expanded(
+            child: _miniStat(
+                _money((_data['avg_daily_spend'] as num?)), 'avg per day')),
+      ]),
+      const SizedBox(height: 26),
+      const Text('LOG AN EXPENSE',
+          style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1,
+              color: C.textTertiary)),
+      const SizedBox(height: 10),
+      _card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(children: [
+            CupertinoTextField(
+              controller: _amountController,
+              placeholder: 'Amount',
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              padding: const EdgeInsets.all(14),
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 10),
+            CupertinoTextField(
+              controller: _noteController,
+              placeholder: 'Note (optional)',
+              padding: const EdgeInsets.all(14),
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: CupertinoButton.filled(
+                onPressed: _addExpense,
+                child: const Text('Add'),
+              ),
+            ),
+          ]),
+        ),
+      ),
+      if (_error != null) ...[
+        const SizedBox(height: 14),
+        Text(_error!,
+            style: const TextStyle(fontSize: 13, color: C.danger)),
+      ],
+    ];
+  }
+
+  Widget _miniStat(String value, String label) => _card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: C.textPrimary)),
+              const SizedBox(height: 3),
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 11, color: C.textSecondary)),
+            ],
+          ),
+        ),
+      );
+
+  Widget _card({required Widget child}) => Container(
+        decoration: BoxDecoration(
+          color: C.glass,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0x14000000)),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x0D000000), blurRadius: 18, offset: Offset(0, 6)),
+          ],
+        ),
+        child: child,
+      );
+}
