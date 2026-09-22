@@ -1,94 +1,89 @@
 # Vector Finance
 
-Balance, burn rate and runway. Server-backed so the numbers survive a reinstall.
+**How much runway is left, and what did today actually cost?**
 
+Part of the **VECTOR Suite** — three apps, one private database.
 
+---
 
-| Component | What it does |
-|---|---|
-| `backend/` | One API. Turns a goal into a plan; serves all three apps. |
-| `vector-tasks` | The core app. One goal in, one next action out. |
-| `vector-calendar` | Today's plan: what's startable, what's done, focus time. |
-| `vector-finance` | Balance, burn rate, runway. |
-| `supabase/schema.sql` | The private database schema. |
+## The number that changes behaviour
 
-All three apps share one database. A task created in `vector-tasks` appears in
-`vector-calendar`; spending logged in `vector-finance` informs the day. That
-integration is the reason the database is shared and not three separate ones.
+A balance tells you what you have. **Runway** tells you what to do about it.
 
-## Why there is a backend at all
+So the headline is not the balance — it is `days remaining at current burn`.
+Balance sits underneath as context. A balance of 3,500,000 reads as comfortable;
+"9 days" reads as urgent, and only one of those makes you act.
 
-Two reasons, both non-negotiable:
+Under a week, it turns red and says so.
 
-1. **The model key can never ship in an APK.** Anything embedded in an APK is
-   extractable with `unzip` + `strings`. So no app ever calls a model
-   directly — the backend does.
-2. **The plan must be trustworthy.** Goal decomposition is the entire product
-   value, so it lives in one place that can be tested, versioned and repaired,
-   instead of being duplicated in three apps.
+## What it shows
 
-## The design decision that matters
+- **Runway** — days left at the current average daily burn
+- **Today** — spent vs daily budget, with what is left free
+- **Last 30 days** — total spend, average per day
+- **Log an expense** — amount and an optional note
 
-The single most important behaviour is in `startable_tasks`:
+Until you log spending there is no honest burn rate, so the app says
+"No spending logged yet" instead of inventing a figure.
 
-```sql
-where t.status in ('todo','doing')
-  and (t.blocked_by is null or b.status = 'done')
+## Home-screen widget
+
+A native Android widget (`RunwayWidget`) shows days of runway and what is left
+free today — without opening the app.
+
+## Why it is server-backed
+
+The numbers live on the server so they survive a reinstall, and so the calendar
+can see real daily burn. A finance tracker that forgets everything when you
+switch phones is not a tracker.
+
+## Architecture
+
+```
+Flutter app  ──HTTP──▶  VECTOR Suite API  ──▶  private database
+  (this repo)             (finance + store)
 ```
 
-A task whose blocker is unfinished is **never** returned to the app. The user
-sees exactly one thing to do. This is not a UI filter — it is enforced at the
-data layer, because a UI that merely hides work still leaves the user with the
-whole list in their head.
+Runway maths, computed server-side:
 
-## Running it
-
-```bash
-# Backend (no dependencies beyond the stdlib for the local store)
-cd backend
-python3 api.py            # serves 0.0.0.0:8790
-
-# Or as a service
-systemctl --user start vector-suite-api
+```python
+avg_daily  = total_spent_30d / days_with_spend
+runway_days = balance / avg_daily
 ```
 
+## Build
+
 ```bash
-# Apps
-cd vector-tasks
 flutter pub get
 flutter test
 flutter build apk --release --target-platform android-arm64 --split-per-abi
 ```
 
-The apps default to the server's Tailscale address. Override at build time:
-
 ```bash
-flutter build apk --dart-define=API_BASE=http://<host>:8790
+flutter build apk --dart-define=API_BASE=https://your-host
 ```
 
-## Storage
+CI injects `API_BASE` from the repository variable of the same name.
 
-`backend/store.py` implements a PostgREST-compatible `db_request()` over local
-SQLite, so the system works with **zero** cloud setup. Point `SUPABASE_URL`
-and `SUPABASE_SERVICE_KEY` at a Supabase project and the same calls hit
-Postgres instead — no handler changes. `/health` reports which is active.
+## The VECTOR Suite
 
-## Tests
+| App | Question it answers |
+|---|---|
+| [Vector Tasks](https://github.com/JoshRiang/vector-tasks) | What is the one thing to start right now? |
+| [Vector Calendar](https://github.com/JoshRiang/vector-calendar) | How is today going? |
+| **Vector Finance** (this) | How much runway is left? |
 
-```bash
-python3 run_all_tests.py
-```
-
-Covers store semantics, API routing, the decomposition parser, the timezone
-boundary, and structural checks on all three Flutter apps. No network needed.
+All three share one private database.
 
 ## Privacy
 
-Every table is row-level-security gated on `auth.uid()`. The anon key alone
-reads nothing. The backend runs on the owner's own server; the database is
-private to one user.
+Every table is row-level-security gated on the authenticated user. The backend
+runs on the owner's own server.
 
 ## Not a licensed advisor
 
-`vector-finance` computes and reports. It does not recommend trades or
-investments.
+This app **computes and reports**. It does not recommend trades or investments.
+
+## Licence
+
+MIT
