@@ -111,6 +111,10 @@ class _FinancePageState extends State<FinancePage> {
     }
   }
 
+  /// Read a numeric field from the finance payload, or null when it is
+  /// absent or wrong-typed. A bad value degrades to '—', never throws.
+  num? _num(String key) => _data[key] is num ? _data[key] as num : null;
+
   String _money(num? v) {
     if (v == null) return '—';
     final s = v.toStringAsFixed(0);
@@ -125,8 +129,9 @@ class _FinancePageState extends State<FinancePage> {
   /// Runway is the number that actually changes behaviour, so it gets the
   /// headline slot rather than being buried under the balance.
   Widget _runwayHero() {
-    final days = (_data['runway_days'] as num?)?.toInt();
-    final avg = (_data['avg_daily_spend'] as num?)?.toDouble() ?? 0;
+    // A wrong-typed value degrades to the default via _num, never throws.
+    final days = _num('runway_days')?.toInt();
+    final avg = _num('avg_daily_spend')?.toDouble() ?? 0;
     if (days == null || avg <= 0) {
       return _card(
         child: Padding(
@@ -251,9 +256,9 @@ class _FinancePageState extends State<FinancePage> {
       ];
     }
 
-    final budget = (_data['daily_budget'] as num?)?.toDouble() ?? 0;
-    final spentToday = (_data['today_spent'] as num?)?.toDouble() ?? 0;
-    final free = (_data['free_today'] as num?)?.toDouble();
+    final budget = _num('daily_budget')?.toDouble() ?? 0;
+    final spentToday = _num('today_spent')?.toDouble() ?? 0;
+    final free = _num('free_today')?.toDouble();
     final progress = budget > 0 ? (spentToday / budget).clamp(0.0, 1.0) : 0.0;
 
     return [
@@ -261,7 +266,7 @@ class _FinancePageState extends State<FinancePage> {
           style: TextStyle(
               fontSize: 34, fontWeight: FontWeight.w700, color: C.textPrimary)),
       const SizedBox(height: 4),
-      Text('Balance ${_money((_data['balance'] as num?))}',
+      Text('Balance ${_money(_num('balance'))}',
           style: const TextStyle(fontSize: 15, color: C.textSecondary)),
       const SizedBox(height: 22),
       _runwayHero(),
@@ -313,12 +318,11 @@ class _FinancePageState extends State<FinancePage> {
       const SizedBox(height: 14),
       Row(children: [
         Expanded(
-            child: _miniStat(
-                _money((_data['spent_30d'] as num?)), 'last 30 days')),
+            child: _miniStat(_money(_num('spent_30d')), 'last 30 days')),
         const SizedBox(width: 12),
         Expanded(
             child: _miniStat(
-                _money((_data['avg_daily_spend'] as num?)), 'avg per day')),
+                _money(_num('avg_daily_spend')), 'avg per day')),
       ]),
       const SizedBox(height: 26),
       const Text('LOG AN EXPENSE',
