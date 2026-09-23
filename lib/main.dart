@@ -120,7 +120,13 @@ class _FinancePageState extends State<FinancePage> {
 
   /// Read a numeric field from the finance payload, or null when it is
   /// absent or wrong-typed. A bad value degrades to '—', never throws.
-  num? _num(String key) => _data[key] is num ? _data[key] as num : null;
+  ///
+  /// The `is` test narrows the type, so the cast is safe and cannot throw.
+  num? _num(String key) {
+    final v = _data[key];
+    if (v is num) return v;
+    return null;
+  }
 
   String _money(num? v) {
     if (v == null) return '—';
