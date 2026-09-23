@@ -60,8 +60,13 @@ class _FinancePageState extends State<FinancePage> {
   }
 
   Future<void> _bootstrap() async {
-    final prefs = await SharedPreferences.getInstance();
-    final id = prefs.getString('vector.user_id') ?? Api.defaultUserId;
+    String id = Api.defaultUserId;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      id = prefs.getString('vector.user_id') ?? Api.defaultUserId;
+    } catch (_) {
+      // Prefs failure must not strand the app on a blank screen.
+    }
     _api = Api(userId: id);
     await _refresh();
   }
