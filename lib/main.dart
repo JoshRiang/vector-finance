@@ -36,11 +36,18 @@ class VectorFinanceApp extends StatelessWidget {
   const VectorFinanceApp({super.key});
 
   @override
-  Widget build(BuildContext context) => const CupertinoApp(
+  Widget build(BuildContext context) => CupertinoApp(
         title: 'Vector Finance',
         debugShowCheckedModeBanner: false,
         theme: CupertinoThemeData(
             primaryColor: C.accent, scaffoldBackgroundColor: C.bg),
+        // Clamp the system text scale: the big runway number and the money rows
+        // ran off the right edge at Android's larger font settings.
+        builder: (context, child) => MediaQuery.withClampedTextScaling(
+          minScaleFactor: 0.8,
+          maxScaleFactor: 1.2,
+          child: child ?? const SizedBox.shrink(),
+        ),
         home: FinancePage(),
       );
 }
@@ -299,11 +306,18 @@ class _FinancePageState extends State<FinancePage> {
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: C.textPrimary)),
-                    Text(free == null ? '—' : '${_money(free)} free',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: progress >= 1 ? C.danger : C.success)),
+                    const SizedBox(width: 8),
+                    // Flexible + ellipsis: a large amount plus a large system
+                    // text scale used to run this figure off the right edge.
+                    Flexible(
+                      child: Text(free == null ? '—' : '${_money(free)} free',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: progress >= 1 ? C.danger : C.success)),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
