@@ -5,10 +5,24 @@
 /// never auto-adjusts the user's daily budget, it only computes and reports.
 library;
 
+// ImageFilter comes from dart:ui; importing it explicitly is
+// unambiguous and costs nothing.
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
+
+/// Viewer mode: the apps are a window onto the plan, Hermes is the manager and
+/// Telegram is how the user talks to it. When true the app hides every editing
+/// surface (quick-add, editors, expense entry) so exactly one writer changes
+/// the data -- two writers disagreeing is how the list and the calendar drift
+/// apart. Flip it with --dart-define=VECTOR_READ_ONLY=false for an editable
+/// build; the default is viewer.
+const bool kReadOnly =
+    bool.fromEnvironment('VECTOR_READ_ONLY', defaultValue: true);
+
 
 void main() {
   // In release builds a widget whose build() throws is replaced by a
@@ -352,6 +366,9 @@ class _FinancePageState extends State<FinancePage> {
                 _money(_num('avg_daily_spend')), 'avg per day')),
       ]),
       const SizedBox(height: 26),
+      // Viewer mode: no expense entry. Hermes logs spending from Telegram, so
+      // there is exactly one writer and the totals cannot be double-counted.
+      if (!kReadOnly) ...[
       const Text('LOG AN EXPENSE',
           style: TextStyle(
               fontSize: 12,
@@ -389,6 +406,7 @@ class _FinancePageState extends State<FinancePage> {
           ]),
         ),
       ),
+      ],
       if (_error != null) ...[
         const SizedBox(height: 14),
         Text(_error!,
@@ -417,17 +435,31 @@ class _FinancePageState extends State<FinancePage> {
         ),
       );
 
-  Widget _card({required Widget child}) => Container(
-        decoration: BoxDecoration(
-          color: C.glass,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0x14000000)),
-          boxShadow: const [
-            BoxShadow(
-                color: Color(0x0D000000), blurRadius: 18, offset: Offset(0, 6)),
-          ],
+  /// Real Liquid Glass: a BackdropFilter blurs the backdrop, then a translucent
+  /// two-stop white sits on top. Flat translucency reads as a plain box.
+  Widget _card({required Widget child}) => ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xE6FFFFFF), Color(0xB8FFFFFF)],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0x33FFFFFF), width: 1),
+              boxShadow: const [
+                BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 24,
+                    offset: Offset(0, 8)),
+              ],
+            ),
+            child: child,
+          ),
         ),
-        child: child,
       );
 }
 
